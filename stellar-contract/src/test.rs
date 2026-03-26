@@ -1,19 +1,22 @@
 #![cfg(test)]
 use super::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};
-use crate::types::{Config, FeeConfig};
+use crate::types::{Config, FeeConfig, UserPosition, Market, MarketMetadata};
 use crate::storage::DataKey;
 use crate::prediction_market::{PredictionMarketContract, PredictionMarketContractClient};
 
 fn setup_test(env: &Env) -> (Address, PredictionMarketContractClient) {
-    let contract_id = env.register_contract(None, PredictionMarketContract);
+    let contract_id = env.register(PredictionMarketContract, ());
     let client = PredictionMarketContractClient::new(env, &contract_id);
     let admin = Address::generate(env);
+
+    // Create a test token contract
+    let token = env.register_stellar_asset_contract_v2(admin.clone()).address();
 
     let config = Config {
         admin: admin.clone(),
         default_oracle: Address::generate(env),
-        token: Address::generate(env),
+        token: token.clone(),
         fee_config: FeeConfig {
             protocol_fee_bps: 100,
             lp_fee_bps: 200,
@@ -286,4 +289,127 @@ fn test_pause_unauthorized() {
     create_test_market(&env, &client.address, market_id, &unauthorized_user);
 
     client.pause_market(&unauthorized_user, &market_id);
+}
+
+fn create_resolved_market(env: &Env, client_address: &Address, market_id: u64, creator: &Address, winning_outcome_id: u32) -> Market {
+    let mut market = create_test_market(env, client_address, market_id, creator);
+    market.status = crate::types::MarketStatus::Resolved;
+    market.winning_outcome_id = Some(winning_outcome_id);
+
+    env.as_contract(client_address, || {
+        env.storage().persistent().set(&DataKey::Market(market_id), &market);
+    });
+
+    market
+}
+
+fn create_user_position(env: &Env, client_address: &Address, market_id: u64, outcome_id: u32, holder: &Address, shares: i128) {
+    let position = UserPosition {
+        market_id,
+        outcome_id,
+        holder: holder.clone(),
+        shares,
+        redeemed: false,
+    };
+
+    env.as_contract(client_address, || {
+        env.storage().persistent().set(&DataKey::UserPosition(market_id, outcome_id, holder.clone()), &position);
+    });
+}
+
+fn get_token_address(env: &Env, client: &PredictionMarketContractClient) -> Address {
+    env.as_contract(&client.address, || {
+        let config: Config = env.storage().persistent().get(&DataKey::Config).unwrap();
+        config.token
+    })
+}
+
+#[test]
+fn test_redeem_position_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, client) = setup_test(&env);
+    let holder = Address::generate(&env);
+    let market_id = 1u64;
+    let winning_outcome_id = 0u32;
+    let shares = 1000i128;
+
+    create_resolved_market(&env, &client.address, market_id, &holder, winning_outcome_id);
+    create_user_position(&env, &client.address, market_id, winning_outcome_id, &holder, shares);
+
+    // Mint tokens directly to the contract so it can pay out
+    let token_addr = get_token_address(&env, &client);
+    let stellar_asset_client = soroban_sdk::token::StellarAssetClient::new(&env, &token_addr);
+    stellar_asset_client.mint(&client.address, &shares);
+
+    let result = client.redeem_position(&holder, &market_id, &winning_outcome_id);
+
+    assert_eq!(result, shares);
+
+    // Verify position is marked as redeemed
+    env.as_contract(&client.address, || {
+        let position: UserPosition = env.storage().persistent().get(&DataKey::UserPosition(market_id, winning_outcome_id, holder)).unwrap();
+        assert_eq!(position.redeemed, true);
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_redeem_position_losing_outcome() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, client) = setup_test(&env);
+    let holder = Address::generate(&env);
+    let market_id = 1u64;
+    let winning_outcome_id = 0u32;
+    let losing_outcome_id = 1u32;
+    let shares = 1000i128;
+
+    create_resolved_market(&env, &client.address, market_id, &holder, winning_outcome_id);
+    create_user_position(&env, &client.address, market_id, losing_outcome_id, &holder, shares);
+
+    client.redeem_position(&holder, &market_id, &losing_outcome_id);
+}
+
+#[test]
+#[should_panic]
+fn test_redeem_position_already_redeemed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, client) = setup_test(&env);
+    let holder = Address::generate(&env);
+    let market_id = 1u64;
+    let winning_outcome_id = 0u32;
+    let shares = 1000i128;
+
+    create_resolved_market(&env, &client.address, market_id, &holder, winning_outcome_id);
+    create_user_position(&env, &client.address, market_id, winning_outcome_id, &holder, shares);
+
+    // First redeem
+    client.redeem_position(&holder, &market_id, &winning_outcome_id);
+
+    // Second redeem should fail
+    client.redeem_position(&holder, &market_id, &winning_outcome_id);
+}
+
+#[test]
+#[should_panic]
+fn test_redeem_position_market_not_resolved() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, client) = setup_test(&env);
+    let holder = Address::generate(&env);
+    let market_id = 1u64;
+    let outcome_id = 0u32;
+    let shares = 1000i128;
+
+    // Create market but don't resolve it
+    create_test_market(&env, &client.address, market_id, &holder);
+    create_user_position(&env, &client.address, market_id, outcome_id, &holder, shares);
+
+    client.redeem_position(&holder, &market_id, &outcome_id);
 }

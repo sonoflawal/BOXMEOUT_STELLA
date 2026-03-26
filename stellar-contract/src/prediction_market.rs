@@ -711,7 +711,7 @@ impl PredictionMarketContract {
 
         // Betting time must not have passed
         if market.betting_close_time <= env.ledger().timestamp() {
-            return Err(PredictionMarketError::ResolutionDeadlinePassed); // Use appropriate error for betting closed
+            return Err(PredictionMarketError::DeadlinePassed); // Use appropriate error for betting closed
         }
 
         market.status = crate::types::MarketStatus::Open;
@@ -1259,7 +1259,49 @@ impl PredictionMarketContract {
         market_id: u64,
         outcome_id: u32,
     ) -> Result<i128, PredictionMarketError> {
-        todo!("Implement winning share redemption (1 share = 1 USDC)")
+        let config = load_config(&env)?;
+        if is_emergency_paused(&env, &config) {
+            return Err(PredictionMarketError::EmergencyPaused);
+        }
+
+        holder.require_auth();
+
+        let market: Market = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Market(market_id))
+            .ok_or(PredictionMarketError::MarketNotFound)?;
+
+        if market.status != MarketStatus::Resolved {
+            return Err(PredictionMarketError::InvalidMarketStatus);
+        }
+
+        if market.winning_outcome_id != Some(outcome_id) {
+            return Err(PredictionMarketError::NotWinningOutcome);
+        }
+
+        let position_key = DataKey::UserPosition(market_id, outcome_id, holder.clone());
+        let mut position: UserPosition = env
+            .storage()
+            .persistent()
+            .get(&position_key)
+            .ok_or(PredictionMarketError::PositionNotFound)?;
+
+        if position.redeemed {
+            return Err(PredictionMarketError::AlreadyRedeemed);
+        }
+
+        let collateral_out = position.shares;
+
+        let token = soroban_sdk::token::Client::new(&env, &config.token);
+        token.transfer(&env.current_contract_address(), &holder, &collateral_out);
+
+        position.redeemed = true;
+        env.storage().persistent().set(&position_key, &position);
+
+        events::position_redeemed(&env, market_id, holder, outcome_id, collateral_out);
+
+        Ok(collateral_out)
     }
 
     /// Refund all positions a user holds in a cancelled market.

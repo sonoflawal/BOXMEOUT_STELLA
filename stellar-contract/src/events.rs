@@ -357,7 +357,8 @@ pub fn position_redeemed(
     outcome_id: u32,
     collateral_out: i128,
 ) {
-    todo!("Emit position_redeemed event")
+    let topics = (Symbol::new(env, "redeemed"), market_id);
+    env.events().publish(topics, (market_id, holder, outcome_id, collateral_out));
 }
 
 /// Emitted when a user is refunded after market cancellation.
