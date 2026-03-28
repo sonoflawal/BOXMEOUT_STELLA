@@ -231,6 +231,8 @@ pub fn market_cancelled(env: &Env, market_id: u64, cancelled_by: Address) {
 /// - Topics: [symbol!("mkt_final"), market_id as Symbol]
 /// - Data:   (market_id: u64, winning_outcome_id: u32, finalized_at: u64)
 pub fn market_finalized(env: &Env, market_id: u64, winning_outcome_id: u32) {
+
+    #[allow(deprecated)]
     env.events().publish(
         (Symbol::new(env, "mkt_final"), market_id),
         (market_id, winning_outcome_id, env.ledger().timestamp()),
@@ -250,6 +252,9 @@ pub fn market_emergency_resolved(
 ) {
     env.events().publish(
         (Symbol::new(env, "emrg_reslv"), market_id),
+    #[allow(deprecated)]
+    env.events().publish(
+        (Symbol::new(env, "emrg_resolve"), market_id),
         (market_id, winning_outcome_id, admin),
     );
 }
@@ -301,6 +306,9 @@ pub fn dispute_resolved(
 ) {
     env.events().publish(
         (Symbol::new(env, "disp_reslvd"), market_id),
+    #[allow(deprecated)]
+    env.events().publish(
+        (Symbol::new(env, "disp_resolved"), market_id),
         (market_id, upheld, final_outcome_id),
     );
 }
@@ -328,6 +336,18 @@ pub fn shares_bought(
     env.events().publish(
         (Symbol::new(env, "bought"), market_id),
         (market_id, buyer, outcome_id, collateral_in, shares_out, avg_price_bps, total_fees),
+    #[allow(deprecated)]
+    env.events().publish(
+        (Symbol::new(env, "bought"), market_id, outcome_id),
+        (
+            market_id,
+            buyer,
+            outcome_id,
+            collateral_in,
+            shares_out,
+            avg_price_bps,
+            total_fees,
+        ),
     );
 }
 
@@ -403,6 +423,8 @@ pub fn position_redeemed(
         (Symbol::new(env, "redeemed"), market_id),
         (market_id, holder, outcome_id, collateral_out),
     );
+    let topics = (Symbol::new(env, "redeemed"), market_id);
+    env.events().publish(topics, (market_id, holder, outcome_id, collateral_out));
 }
 
 /// Emitted when a user is refunded after market cancellation.
@@ -415,6 +437,8 @@ pub fn position_refunded(env: &Env, market_id: u64, holder: Address, total_refun
         (Symbol::new(env, "refunded"), market_id),
         (market_id, holder, total_refund),
     );
+    let topics = (Symbol::new(env, "refunded"), market_id);
+    env.events().publish(topics, (market_id, holder, total_refund));
 }
 
 /// Emitted once per market successfully redeemed inside a `batch_redeem` call.
@@ -427,6 +451,8 @@ pub fn batch_redeemed(env: &Env, market_id: u64, holder: Address, collateral_out
         (Symbol::new(env, "batch_redm"), market_id),
         (market_id, holder, collateral_out),
     );
+    let topics = (Symbol::new(env, "batch_redeem"), market_id);
+    env.events().publish(topics, (market_id, holder, collateral_out));
 }
 
 // =============================================================================
@@ -476,6 +502,8 @@ pub fn liquidity_removed(
 /// - Topics: [symbol!("lp_fees"), market_id as Symbol]
 /// - Data:   (market_id: u64, provider: Address, fees_claimed: i128)
 pub fn lp_fees_claimed(env: &Env, market_id: u64, provider: Address, fees_claimed: i128) {
+
+    #[allow(deprecated)]
     env.events().publish(
         (Symbol::new(env, "lp_fees"), market_id),
         (market_id, provider, fees_claimed),
@@ -488,6 +516,8 @@ pub fn lp_fees_claimed(env: &Env, market_id: u64, provider: Address, fees_claime
 /// - Topics: [symbol!("proto_fees"), market_id as Symbol]
 /// - Data:   (market_id: u64, treasury: Address, amount: i128)
 pub fn protocol_fees_collected(env: &Env, market_id: u64, treasury: Address, amount: i128) {
+
+    #[allow(deprecated)]
     env.events().publish(
         (Symbol::new(env, "proto_fees"), market_id),
         (market_id, treasury, amount),
@@ -502,6 +532,9 @@ pub fn protocol_fees_collected(env: &Env, market_id: u64, treasury: Address, amo
 pub fn creator_fees_collected(env: &Env, market_id: u64, creator: Address, amount: i128) {
     env.events().publish(
         (Symbol::new(env, "cretr_fees"), market_id),
+    #[allow(deprecated)]
+    env.events().publish(
+        (Symbol::new(env, "creator_fees"), market_id),
         (market_id, creator, amount),
     );
 }
