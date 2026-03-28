@@ -1,6 +1,6 @@
 #![cfg(test)]
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address, Env};
 use crate::types::{
     Config, FeeConfig, Market, MarketMetadata, MarketStatus, OracleReport, Outcome, UserPosition,
 };
@@ -642,5 +642,184 @@ fn test_batch_redeem_exceeds_max() {
         &holder,
         &soroban_sdk::vec![&env, 1u64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
         &soroban_sdk::vec![&env, 0u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    );
+}
+
+// =============================================================================
+// dispute_outcome tests
+// =============================================================================
+
+fn setup_dispute_test(
+    env: &Env,
+    client: &PredictionMarketContractClient,
+    market_id: u64,
+    admin: &Address,
+    reported_at: u64,
+    dispute_window_secs: u64,
+    oracle_proposed_outcome: u32,
+) {
+    create_reported_market(env, &client.address, market_id, admin, dispute_window_secs, reported_at, oracle_proposed_outcome);
+}
+
+#[test]
+fn test_dispute_outcome_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    // Set ledger time inside the dispute window
+    env.ledger().set_timestamp(500);
+
+    let (admin, client) = setup_test(&env);
+    let disputer = Address::generate(&env);
+    let market_id = 100u64;
+    let oracle_outcome = 0u32;
+    let dispute_outcome_id = 1u32;
+    let bond_amount = 500i128;
+
+    // reported_at=0, window=3600 → deadline=3600; now=500 → inside window
+    setup_dispute_test(&env, &client, market_id, &admin, 0, 3600, oracle_outcome);
+
+    // Mint bond tokens to disputer
+    let token_addr = get_token_address(&env, &client);
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_addr).mint(&disputer, &bond_amount);
+
+    client.dispute_outcome(
+        &disputer,
+        &market_id,
+        &dispute_outcome_id,
+        &soroban_sdk::String::from_str(&env, "Evidence URL"),
+    );
+
+    // Verify Dispute was persisted
+    env.as_contract(&client.address, || {
+        let dispute: crate::types::Dispute = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Dispute(market_id))
+            .unwrap();
+        assert_eq!(dispute.disputer, disputer);
+        assert_eq!(dispute.proposed_outcome_id, dispute_outcome_id);
+        assert_eq!(dispute.bond, bond_amount);
+        assert_eq!(dispute.status, crate::types::DisputeStatus::Pending);
+    });
+
+    // Verify report.disputed = true
+    env.as_contract(&client.address, || {
+        let report: OracleReport = env
+            .storage()
+            .persistent()
+            .get(&DataKey::OracleReport(market_id))
+            .unwrap();
+        assert!(report.disputed);
+    });
+}
+
+#[test]
+#[should_panic]
+fn test_dispute_outcome_after_window_expired() {
+    let env = Env::default();
+    env.mock_all_auths();
+    // Set ledger time past the dispute window
+    env.ledger().set_timestamp(4000);
+
+    let (admin, client) = setup_test(&env);
+    let disputer = Address::generate(&env);
+    let market_id = 101u64;
+
+    // reported_at=0, window=3600 → deadline=3600; now=4000 → expired
+    setup_dispute_test(&env, &client, market_id, &admin, 0, 3600, 0);
+
+    let token_addr = get_token_address(&env, &client);
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_addr).mint(&disputer, &500i128);
+
+    client.dispute_outcome(
+        &disputer,
+        &market_id,
+        &1u32,
+        &soroban_sdk::String::from_str(&env, "too late"),
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_dispute_outcome_duplicate_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+
+    let (admin, client) = setup_test(&env);
+    let disputer = Address::generate(&env);
+    let market_id = 102u64;
+
+    setup_dispute_test(&env, &client, market_id, &admin, 0, 3600, 0);
+
+    let token_addr = get_token_address(&env, &client);
+    // Mint enough for two bond transfers
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_addr).mint(&disputer, &1000i128);
+
+    // First dispute — should succeed
+    client.dispute_outcome(
+        &disputer,
+        &market_id,
+        &1u32,
+        &soroban_sdk::String::from_str(&env, "first"),
+    );
+
+    // Second dispute on same market — should panic with DisputeAlreadyExists
+    client.dispute_outcome(
+        &disputer,
+        &market_id,
+        &1u32,
+        &soroban_sdk::String::from_str(&env, "duplicate"),
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_dispute_outcome_same_as_oracle_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+
+    let (admin, client) = setup_test(&env);
+    let disputer = Address::generate(&env);
+    let market_id = 103u64;
+
+    // Oracle proposed outcome 0
+    setup_dispute_test(&env, &client, market_id, &admin, 0, 3600, 0);
+
+    let token_addr = get_token_address(&env, &client);
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_addr).mint(&disputer, &500i128);
+
+    // Disputing with the same outcome as oracle — should panic with InvalidOutcome
+    client.dispute_outcome(
+        &disputer,
+        &market_id,
+        &0u32, // same as oracle
+        &soroban_sdk::String::from_str(&env, "same outcome"),
+    );
+}
+
+#[test]
+#[should_panic]
+fn test_dispute_outcome_market_not_reported() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+
+    let (admin, client) = setup_test(&env);
+    let disputer = Address::generate(&env);
+    let market_id = 104u64;
+
+    // Market is Open, not Reported
+    create_test_market(&env, &client.address, market_id, &admin);
+
+    let token_addr = get_token_address(&env, &client);
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_addr).mint(&disputer, &500i128);
+
+    client.dispute_outcome(
+        &disputer,
+        &market_id,
+        &1u32,
+        &soroban_sdk::String::from_str(&env, "wrong status"),
     );
 }

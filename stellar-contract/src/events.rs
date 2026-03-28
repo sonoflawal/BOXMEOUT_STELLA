@@ -266,7 +266,10 @@ pub fn outcome_disputed(
     proposed_outcome_id: u32,
     bond: i128,
 ) {
-    todo!("Emit outcome_disputed event")
+    env.events().publish(
+        (Symbol::new(env, "disputed"), market_id),
+        (market_id, disputer, proposed_outcome_id, bond),
+    );
 }
 
 /// Emitted when admin rules on a dispute.

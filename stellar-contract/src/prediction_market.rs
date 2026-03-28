@@ -1328,6 +1328,7 @@ impl PredictionMarketContract {
                 outcome_id,
                 holder: buyer.clone(),
                 shares: 0,
+                collateral_spent: 0,
                 redeemed: false,
             });
         position.shares = position
@@ -1572,7 +1573,96 @@ impl PredictionMarketContract {
         proposed_outcome_id: u32,
         reason: String,
     ) -> Result<(), PredictionMarketError> {
-        todo!("Implement bond-backed dispute submission")
+        // 1. Check global emergency pause
+        let config = load_config(&env)?;
+        if is_emergency_paused(&env, &config) {
+            return Err(PredictionMarketError::EmergencyPaused);
+        }
+
+        // 2. Require disputer auth
+        disputer.require_auth();
+
+        // 3. Load market; validate status is Reported
+        let market: Market = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Market(market_id))
+            .ok_or(PredictionMarketError::MarketNotFound)?;
+
+        if market.status != MarketStatus::Reported {
+            return Err(PredictionMarketError::MarketNotReported);
+        }
+
+        // 4. Load oracle report
+        let mut report: OracleReport = env
+            .storage()
+            .persistent()
+            .get(&DataKey::OracleReport(market_id))
+            .ok_or(PredictionMarketError::DisputeNotFound)?;
+
+        // 5. Validate dispute window: now < report.reported_at + market.dispute_window_secs
+        let now = env.ledger().timestamp();
+        let window_end = report
+            .reported_at
+            .checked_add(market.dispute_window_secs)
+            .ok_or(PredictionMarketError::ArithmeticError)?;
+        if now >= window_end {
+            return Err(PredictionMarketError::DisputeWindowExpired);
+        }
+
+        // 6. proposed_outcome_id must differ from oracle's proposal
+        if proposed_outcome_id == report.proposed_outcome_id {
+            return Err(PredictionMarketError::InvalidOutcome);
+        }
+
+        // 7. Validate proposed_outcome_id is a valid outcome index
+        if (proposed_outcome_id as usize) >= market.outcomes.len() as usize {
+            return Err(PredictionMarketError::InvalidOutcome);
+        }
+
+        // 8. No existing dispute for this market
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Dispute(market_id))
+        {
+            return Err(PredictionMarketError::DisputeAlreadyExists);
+        }
+
+        // 9. bond >= Config.dispute_bond
+        let bond = config.dispute_bond;
+        if bond <= 0 {
+            return Err(PredictionMarketError::InsufficientBond);
+        }
+
+        // 10. Transfer bond from disputer to contract
+        let token_client = soroban_sdk::token::TokenClient::new(&env, &config.token);
+        token_client.transfer(&disputer, &env.current_contract_address(), &bond);
+
+        // 11. Build and persist Dispute
+        let dispute = Dispute {
+            market_id,
+            disputer: disputer.clone(),
+            bond,
+            proposed_outcome_id,
+            reason,
+            submitted_at: now,
+            status: DisputeStatus::Pending,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::Dispute(market_id), &dispute);
+
+        // 12. Mark report as disputed and persist
+        report.disputed = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::OracleReport(market_id), &report);
+
+        // 13. Emit event
+        events::outcome_disputed(&env, market_id, disputer, proposed_outcome_id, bond);
+
+        Ok(())
     }
 
     /// Admin resolves an active dispute by ruling for or against it.
