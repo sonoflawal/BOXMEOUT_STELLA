@@ -57,6 +57,16 @@ export async function fetchMarkets(
  * Throws NotFoundError on 404.
  */
 export async function fetchMarketById(market_id: string): Promise<Market> {
+<<<<<<< feat/use-market-hook
+  const res = await fetch(`${API_BASE}/api/markets/${market_id}`);
+  if (res.status === 404) {
+    const err = new Error(`Market ${market_id} not found`);
+    err.name = 'NotFoundError';
+    throw err;
+  }
+  if (!res.ok) throw new Error(`Failed to fetch market: ${res.status}`);
+  return res.json();
+=======
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/api/markets/${market_id}`);
@@ -66,6 +76,7 @@ export async function fetchMarketById(market_id: string): Promise<Market> {
   if (res.status === 404) throw new NotFoundError(`Market ${market_id} not found`);
   if (!res.ok) throw new NetworkError(`Unexpected response: ${res.status}`);
   return res.json() as Promise<Market>;
+>>>>>>> main
 }
 
 /**
