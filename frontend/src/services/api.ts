@@ -14,6 +14,14 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+export class NotFoundError extends Error {
+  constructor(message = 'Not found') { super(message); this.name = 'NotFoundError'; }
+}
+
+export class NetworkError extends Error {
+  constructor(message = 'Network error') { super(message); this.name = 'NetworkError'; }
+}
+
 export interface MarketFilters {
   status?: string;
   weight_class?: string;
@@ -49,6 +57,7 @@ export async function fetchMarkets(
  * Throws NotFoundError on 404.
  */
 export async function fetchMarketById(market_id: string): Promise<Market> {
+<<<<<<< feat/use-market-hook
   const res = await fetch(`${API_BASE}/api/markets/${market_id}`);
   if (res.status === 404) {
     const err = new Error(`Market ${market_id} not found`);
@@ -57,6 +66,17 @@ export async function fetchMarketById(market_id: string): Promise<Market> {
   }
   if (!res.ok) throw new Error(`Failed to fetch market: ${res.status}`);
   return res.json();
+=======
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/markets/${market_id}`);
+  } catch (e) {
+    throw new NetworkError((e as Error).message);
+  }
+  if (res.status === 404) throw new NotFoundError(`Market ${market_id} not found`);
+  if (!res.ok) throw new NetworkError(`Unexpected response: ${res.status}`);
+  return res.json() as Promise<Market>;
+>>>>>>> main
 }
 
 /**
@@ -72,7 +92,9 @@ export async function fetchBetsByMarket(market_id: string): Promise<Bet[]> {
  * Returns the full Portfolio object.
  */
 export async function fetchPortfolio(address: string): Promise<Portfolio> {
-  // TODO: implement
+  const res = await fetch(`${API_BASE}/api/portfolio/${address}`);
+  if (!res.ok) throw new Error(`fetchPortfolio failed: ${res.status}`);
+  return res.json();
 }
 
 /**
