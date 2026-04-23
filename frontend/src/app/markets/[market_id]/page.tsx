@@ -2,6 +2,8 @@
 // BOXMEOUT — Market Detail Page (/markets/[market_id])
 // ============================================================
 
+import { ErrorBoundary } from '../../../components/ui/ErrorBoundary';
+
 interface MarketDetailPageProps {
   params: { market_id: string };
 }
@@ -23,8 +25,16 @@ interface MarketDetailPageProps {
  * Shows 404 message if market not found.
  * Shows error boundary fallback on unexpected errors.
  */
+function MarketDetailContent({ market_id }: { market_id: string }): JSX.Element {
+  // TODO: implement
+}
+
 export default function MarketDetailPage({
   params,
 }: MarketDetailPageProps): JSX.Element {
-  // TODO: implement
+  return (
+    <ErrorBoundary>
+      <MarketDetailContent market_id={params.market_id} />
+    </ErrorBoundary>
+  );
 }
