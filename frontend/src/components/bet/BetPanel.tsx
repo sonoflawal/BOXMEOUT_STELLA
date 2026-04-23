@@ -50,7 +50,7 @@ export function BetPanel({ market }: BetPanelProps): JSX.Element {
           <button
             key={value}
             onClick={() => setSide(value)}
-            className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+            className={`flex-1 min-h-[44px] rounded-lg text-sm font-semibold transition-colors ${
               side === value
                 ? 'bg-amber-500 text-black'
                 : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
@@ -92,7 +92,7 @@ export function BetPanel({ market }: BetPanelProps): JSX.Element {
       <button
         disabled={!canSubmit}
         onClick={() => setShowModal(true)}
-        className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-400 font-semibold text-black disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-full min-h-[44px] rounded-lg bg-amber-500 hover:bg-amber-400 font-semibold text-black disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {isSubmitting ? 'Placing Bet…' : 'Place Bet'}
       </button>
