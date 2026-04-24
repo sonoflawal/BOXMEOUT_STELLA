@@ -50,5 +50,17 @@ services:
     ports:
       - '3000:3000'
 
+  postgres-test:
+    image: postgres:15-alpine
+    profiles: [test]
+    environment:
+      POSTGRES_USER: boxmeout
+      POSTGRES_PASSWORD: boxmeout
+      POSTGRES_DB: boxmeout_test
+    ports:
+      - '5433:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+
 volumes:
   postgres_data:
