@@ -5,8 +5,10 @@
 // ============================================================
 
 import type { Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { StrKey } from '@stellar/stellar-sdk';
 import { AppError } from '../../utils/AppError';
+import { validateQuery } from '../middleware/validate';
 import * as MarketService from '../../services/MarketService';
 
 /**
@@ -31,6 +33,15 @@ export async function getMarket(req: Request, res: Response): Promise<void> {
   // TODO: implement
 }
 
+const marketBetsQuerySchema = z.object({
+  address: z
+    .string()
+    .refine((v) => StrKey.isValidEd25519PublicKey(v), {
+      message: 'Invalid Stellar address format',
+    })
+    .optional(),
+});
+
 /**
  * GET /api/markets/:market_id/bets
  * Query params: address (optional — filter to one bettor)
@@ -38,6 +49,8 @@ export async function getMarket(req: Request, res: Response): Promise<void> {
  * Returns all bets for a market.
  * Responds 404 if market not found, 200 with Bet[].
  */
+export const getMarketBetsValidation = validateQuery(marketBetsQuerySchema);
+
 export async function getMarketBets(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { market_id } = req.params;
